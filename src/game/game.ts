@@ -7,7 +7,7 @@
 // Такие функции легко проверять тестами и можно перенести в любое другое приложение.
 
 import { createClock, getClockState, getPlayTime, MINUTE } from './clock'
-import type { Game, Player, Settings, Standing } from './types'
+import type { Game, GameEvent, Player, Settings, Standing } from './types'
 
 export const MIN_PLAYERS = 2
 
@@ -41,6 +41,10 @@ export function validateSettings(settings: Settings): string[] {
     errors.push('Большой блайнд не может быть меньше малого')
   }
   if (!(settings.levelMinutes > 0)) errors.push('Укажите длительность уровня')
+  if (!(settings.minChip > 0)) errors.push('Укажите самую мелкую фишку')
+  else if (settings.smallBlind % settings.minChip !== 0 || settings.bigBlind % settings.minChip !== 0) {
+    errors.push(`Блайнды должны делиться на самую мелкую фишку (${settings.minChip})`)
+  }
 
   switch (settings.rebuyLimit) {
     case 'perPlayer':
@@ -73,6 +77,7 @@ export function createGame(names: string[], settings: Settings, now: number): Ga
     startedAt: now,
     finishedAt: null,
     clock: createClock(),
+    events: [],
   }
 }
 
@@ -114,39 +119,62 @@ export function canRebuy(game: Game, player: Player, now: number): boolean {
 // ---------- Действия по ходу игры ----------
 
 /** Добавляет опоздавшего игрока: он платит бай-ин и получает стартовый стек. */
-export function addPlayer(game: Game, name: string): Game {
+export function addPlayer(game: Game, name: string, now: number): Game {
   // Игроков из игры мы никогда не удаляем, поэтому номер по порядку всегда уникален.
   const id = `p${game.players.length + 1}`
-  return { ...game, players: [...game.players, newPlayer(id, name)] }
+  const withPlayer = { ...game, players: [...game.players, newPlayer(id, name)] }
+  return logEvent(withPlayer, 'join', id, now)
 }
 
 /** Игрок выбыл (проиграл весь стек). Последнего оставшегося выбить нельзя. */
 export function bustPlayer(game: Game, playerId: string, now: number): Game {
-  if (getActivePlayers(game).length <= 1) return game
-  return updatePlayer(game, playerId, (player) =>
-    player.bustedAt === null ? { ...player, bustedAt: now } : player,
-  )
+  const player = findPlayer(game, playerId)
+  if (!player || player.bustedAt !== null || getActivePlayers(game).length <= 1) return game
+  const busted = updatePlayer(game, playerId, (p) => ({ ...p, bustedAt: now }))
+  return logEvent(busted, 'bust', playerId, now)
 }
 
 /** Ребай: выбывший игрок докупается и возвращается в игру. */
 export function addRebuy(game: Game, playerId: string, now: number): Game {
-  const player = game.players.find((p) => p.id === playerId)
+  const player = findPlayer(game, playerId)
   if (!player || !canRebuy(game, player, now)) return game
-  return updatePlayer(game, playerId, (p) => ({ ...p, rebuys: p.rebuys + 1, bustedAt: null }))
+  const rebought = updatePlayer(game, playerId, (p) => ({
+    ...p,
+    rebuys: p.rebuys + 1,
+    bustedAt: null,
+  }))
+  return logEvent(rebought, 'rebuy', playerId, now)
 }
 
-/** Отменяет ребай (нажали по ошибке): игрок снова среди выбывших. */
+/**
+ * Отменяет ребай (нажали по ошибке): игрок снова среди выбывших,
+ * а ребай исчезает из истории, как будто его и не было.
+ */
 export function undoRebuy(game: Game, playerId: string, now: number): Game {
-  return updatePlayer(game, playerId, (player) =>
-    player.rebuys > 0 && player.bustedAt === null
-      ? { ...player, rebuys: player.rebuys - 1, bustedAt: now }
-      : player,
-  )
+  const player = findPlayer(game, playerId)
+  if (!player || player.bustedAt !== null || player.rebuys === 0) return game
+
+  const events = removeLastEvent(game.events, 'rebuy', playerId)
+  // Возвращаем игроку время его настоящего вылета — чтобы места считались верно.
+  const lastBust = findLastEvent(events, 'bust', playerId)
+  const updated = updatePlayer(game, playerId, (p) => ({
+    ...p,
+    rebuys: p.rebuys - 1,
+    bustedAt: lastBust?.at ?? now,
+  }))
+  return { ...updated, events }
 }
 
-/** Отменяет вылет (отметили по ошибке): игрок возвращается в игру без ребая. */
+/** Отменяет вылет (отметили по ошибке): игрок возвращается в игру, вылет исчезает из истории. */
 export function restorePlayer(game: Game, playerId: string): Game {
-  return updatePlayer(game, playerId, (player) => ({ ...player, bustedAt: null }))
+  const player = findPlayer(game, playerId)
+  if (!player || player.bustedAt === null) return game
+  const restored = updatePlayer(game, playerId, (p) => ({ ...p, bustedAt: null }))
+  return { ...restored, events: removeLastEvent(game.events, 'bust', playerId) }
+}
+
+function findPlayer(game: Game, playerId: string): Player | undefined {
+  return game.players.find((player) => player.id === playerId)
 }
 
 /** Меняет одного игрока, остальных оставляет как есть. */
@@ -155,6 +183,34 @@ function updatePlayer(game: Game, playerId: string, change: (player: Player) => 
     ...game,
     players: game.players.map((player) => (player.id === playerId ? change(player) : player)),
   }
+}
+
+// ---------- История ----------
+
+/** Записывает событие в историю вместе с текущими блайндами. */
+function logEvent(game: Game, type: GameEvent['type'], playerId: string, now: number): Game {
+  const { levelIndex, blinds } = getClockState(game, now)
+  const event: GameEvent = { type, playerId, at: now, level: levelIndex, blinds }
+  return { ...game, events: [...game.events, event] }
+}
+
+/** Последнее событие такого типа у игрока. */
+export function findLastEvent(
+  events: GameEvent[],
+  type: GameEvent['type'],
+  playerId: string,
+): GameEvent | undefined {
+  return events.findLast((event) => event.type === type && event.playerId === playerId)
+}
+
+/** Убирает из истории последнее событие такого типа у игрока. */
+function removeLastEvent(
+  events: GameEvent[],
+  type: GameEvent['type'],
+  playerId: string,
+): GameEvent[] {
+  const index = events.findLastIndex((event) => event.type === type && event.playerId === playerId)
+  return index === -1 ? events : events.filter((_, i) => i !== index)
 }
 
 // ---------- Завершение игры ----------
@@ -168,14 +224,11 @@ export function getLastPlayerStanding(game: Game): Player | null {
 /**
  * Завершить игру. Возможно, только когда остался один игрок.
  * Игра не завершается сама: выбывшие должны успеть решить, делать ли ребай.
+ * Завершение окончательное — вернуться к игре нельзя.
  */
 export function finishGame(game: Game, now: number): Game {
-  return getLastPlayerStanding(game) ? { ...game, finishedAt: now } : game
-}
-
-/** Вернуться к завершённой игре (если завершили по ошибке). */
-export function reopenGame(game: Game): Game {
-  return { ...game, finishedAt: null }
+  if (game.finishedAt !== null || !getLastPlayerStanding(game)) return game
+  return { ...game, finishedAt: now }
 }
 
 /** Победитель — оставшийся игрок, но только после того, как игру завершили. */

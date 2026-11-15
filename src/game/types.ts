@@ -21,6 +21,8 @@ export type Settings = {
   bigBlind: number
   /** Длительность одного уровня блайндов, в минутах. */
   levelMinutes: number
+  /** Номинал самой мелкой фишки: все блайнды делятся на него, чтобы их можно было собрать. */
+  minChip: number
 
   /** Способ ограничения ребаев. */
   rebuyLimit: RebuyLimitKind
@@ -60,6 +62,23 @@ export type Clock = {
   levelStartedAt: number
 }
 
+/** Блайнды одного уровня. */
+export type BlindLevel = {
+  small: number
+  big: number
+}
+
+/** Событие в истории игры: кто, что сделал, когда и при каких блайндах. */
+export type GameEvent = {
+  type: 'bust' | 'rebuy' | 'join' // вылет | ребай | опоздавший вошёл в игру
+  playerId: string
+  /** Когда произошло (мс). */
+  at: number
+  /** Номер уровня блайндов в этот момент (0 — первый). */
+  level: number
+  blinds: BlindLevel
+}
+
 /** Текущая игра целиком. */
 export type Game = {
   settings: Settings
@@ -69,12 +88,8 @@ export type Game = {
   /** Когда игру завершили и объявили победителя. null — игра идёт. */
   finishedAt: number | null
   clock: Clock
-}
-
-/** Блайнды одного уровня. */
-export type BlindLevel = {
-  small: number
-  big: number
+  /** История вылетов, ребаев и входов — по порядку. */
+  events: GameEvent[]
 }
 
 /** Строка таблицы мест: игрок и его место (null — место ещё не определено). */

@@ -114,9 +114,13 @@ export function SetupScreen() {
         <div className="grid grid-cols-2 gap-3">
           {field('smallBlind', 'Малый блайнд')}
           {field('bigBlind', 'Большой блайнд')}
-          {field('levelMinutes', 'Длительность уровня, минут', 'col-span-2')}
+          {field('levelMinutes', 'Уровень, минут')}
+          {field('minChip', 'Мелкая фишка')}
         </div>
-        <Hint>Каждый уровень блайнды растут примерно в 1,5 раза и округляются до круглых чисел.</Hint>
+        <Hint>
+          Каждый уровень блайнды растут примерно в 1,5 раза и округляются до круглых чисел,
+          которые делятся на самую мелкую фишку, — чтобы их всегда можно было собрать.
+        </Hint>
         <LevelsPreview settings={settings} />
       </Section>
 
@@ -178,7 +182,10 @@ function blindsAreValid(settings: Settings): boolean {
   return (
     settings.smallBlind > 0 &&
     settings.bigBlind >= settings.smallBlind &&
-    settings.levelMinutes > 0
+    settings.levelMinutes > 0 &&
+    settings.minChip > 0 &&
+    settings.smallBlind % settings.minChip === 0 &&
+    settings.bigBlind % settings.minChip === 0
   )
 }
 

@@ -3,6 +3,7 @@ import { BlindClock } from '../components/BlindClock'
 import { Button } from '../components/Button'
 import { ActivePlayerCard, BustedPlayerCard } from '../components/PlayerCard'
 import { Screen } from '../components/Screen'
+import { Stat } from '../components/Stat'
 import { formatCountdown, formatNumber } from '../format'
 import { getClockState } from '../game/clock'
 import {
@@ -125,18 +126,16 @@ function rebuyStatus(game: Game, now: number): string {
   }
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-white/5 px-3 py-2">
-      <dt className="truncate text-xs text-emerald-300">{label}</dt>
-      <dd className="truncate text-lg font-semibold tabular-nums">{value}</dd>
-    </div>
-  )
-}
-
 /** Остался один игрок: предлагаем завершить игру. */
 function FinishPrompt({ player }: { player: Player }) {
   const finishGame = useGameStore((s) => s.finishGame)
+
+  function handleFinish() {
+    if (window.confirm(`Завершить игру? Победитель — ${player.name}. Вернуться к игре будет нельзя.`)) {
+      finishGame()
+    }
+  }
+
   return (
     <section className="mt-6 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4">
       <p className="text-sm text-amber-200">Остался один игрок</p>
@@ -144,7 +143,7 @@ function FinishPrompt({ player }: { player: Player }) {
       <p className="mt-1 text-sm text-emerald-100/80">
         Если никто из выбывших не делает ребай — завершайте игру.
       </p>
-      <Button variant="primary" size="lg" className="mt-3 w-full" onClick={finishGame}>
+      <Button variant="primary" size="lg" className="mt-3 w-full" onClick={handleFinish}>
         Завершить игру
       </Button>
     </section>

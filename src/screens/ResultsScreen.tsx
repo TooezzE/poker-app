@@ -1,14 +1,31 @@
+import { useState } from 'react'
 import { Button } from '../components/Button'
 import { BottomBar, Screen } from '../components/Screen'
 import { formatNumber, formatSigned } from '../format'
 import { calcBank, getPlayerNet, getPlayerPaid, getStandings } from '../game/game'
 import type { Game, Player } from '../game/types'
 import { useGameStore } from '../store/useGameStore'
+import { OverviewScreen } from './OverviewScreen'
 
 /** Экран 3: игра окончена — победитель, банк и итоги каждого. */
 export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) {
   const resetGame = useGameStore((s) => s.resetGame)
-  const reopenGame = useGameStore((s) => s.reopenGame)
+  // Какой экран показывать: итоги или обзор. Это состояние только интерфейса, не игры,
+  // поэтому оно живёт в компоненте, а не в сторе.
+  const [showOverview, setShowOverview] = useState(false)
+
+  function toggleOverview(show: boolean) {
+    setShowOverview(show)
+    window.scrollTo(0, 0)
+  }
+
+  function handleNewGame() {
+    if (window.confirm('Начать новую игру? Итоги и история этой игры удалятся.')) {
+      resetGame()
+    }
+  }
+
+  if (showOverview) return <OverviewScreen game={game} onBack={() => toggleOverview(false)} />
 
   return (
     <Screen>
@@ -22,7 +39,7 @@ export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) 
         </p>
       </header>
 
-      <ol className="mb-6 divide-y divide-white/10 rounded-2xl bg-white/5">
+      <ol className="divide-y divide-white/10 rounded-2xl bg-white/5">
         {getStandings(game).map(({ player, place }) => {
           const net = getPlayerNet(game, player)
           return (
@@ -44,12 +61,13 @@ export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) 
         })}
       </ol>
 
+      <Button className="mt-4 mb-6 w-full" onClick={() => toggleOverview(true)}>
+        Обзор игры: статистика и история
+      </Button>
+
       <BottomBar>
-        <Button variant="primary" size="lg" className="w-full" onClick={resetGame}>
+        <Button variant="primary" size="lg" className="w-full" onClick={handleNewGame}>
           Новая игра
-        </Button>
-        <Button variant="ghost" size="sm" className="mt-1 w-full" onClick={reopenGame}>
-          Вернуться к игре
         </Button>
       </BottomBar>
     </Screen>

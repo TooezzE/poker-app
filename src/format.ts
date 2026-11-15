@@ -45,6 +45,21 @@ export function formatMinutes(totalMinutes: number): string {
   return minutes === 0 ? `${hours} ч` : `${hours} ч ${minutes} мин`
 }
 
+/** Длительность в мс → «3 ч 12 мин». */
+export function formatDuration(ms: number): string {
+  return formatMinutes(Math.round(ms / 60_000))
+}
+
+/** Время суток: «21:05». */
+export function formatTimeOfDay(ms: number): string {
+  return new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+/** Дата: «15 ноября». */
+export function formatDate(ms: number): string {
+  return new Date(ms).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+}
+
 /**
  * Склонение по числу: plural(5, ['игрок', 'игрока', 'игроков']) → «игроков».
  * Формы: для 1, для 2–4, для 5–20.

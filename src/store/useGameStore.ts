@@ -37,8 +37,6 @@ type GameStore = {
 
   /** Объявить победителя (когда остался один игрок). */
   finishGame: () => void
-  /** Вернуться к игре после завершения. */
-  reopenGame: () => void
   /** Закрыть игру и вернуться к настройке новой. */
   resetGame: () => void
 }
@@ -53,6 +51,7 @@ const defaultSettings: Settings = {
   smallBlind: 50,
   bigBlind: 100,
   levelMinutes: 20,
+  minChip: 5,
   rebuyLimit: 'none',
   rebuyMaxPerPlayer: 2,
   rebuyMinutes: 120,
@@ -104,7 +103,7 @@ export const useGameStore = create<GameStore>()(
 
           const normalized = rules.normalizeName(name)
           set({
-            game: rules.addPlayer(game, normalized),
+            game: rules.addPlayer(game, normalized, Date.now()),
             // Запоминаем опоздавшего и для следующих игр.
             names: rules.checkNewName(names, normalized) === null ? [...names, normalized] : names,
           })
@@ -116,32 +115,39 @@ export const useGameStore = create<GameStore>()(
         previousLevel: () => updateGame((game, now) => clock.changeLevel(game, -1, now)),
 
         finishGame: () => updateGame(rules.finishGame),
-        reopenGame: () => updateGame(rules.reopenGame),
         resetGame: () => set({ game: null }),
       }
     },
     {
       name: 'poker-tracker', // ключ в localStorage
-      version: 2, // увеличиваем, когда меняется формат сохранённых данных
+      version: 3, // увеличиваем, когда меняется формат сохранённых данных
       partialize: (state): SavedData => ({
         names: state.names,
         settings: state.settings,
         game: state.game,
       }),
       // Перенос данных, сохранённых старой версией приложения.
+      // Игроки и ставки всегда сохраняются; новые настройки берутся по умолчанию.
       migrate: (persisted, version) => {
         const saved = persisted as Partial<SavedData>
-        if (version < 2) {
-          // В версии 2 появились таймер блайндов и лимиты ребаев.
-          // Игроков и ставки сохраняем (дополняя новыми настройками),
-          // а незаконченную старую игру не переносим — в ней нет таймера.
-          return {
-            names: saved.names ?? [],
-            settings: { ...defaultSettings, ...saved.settings },
-            game: null,
-          }
+        const names = saved.names ?? []
+        const settings = { ...defaultSettings, ...saved.settings }
+
+        // Версия 1: в игре не было таймера — незаконченную игру не переносим.
+        if (version < 2 || !saved.game) return { names, settings, game: null }
+
+        // Версия 2: в игре не было мелкой фишки и истории событий.
+        // minChip: 1 — чтобы блайнды уже идущей игры не поменялись.
+        const game = saved.game as Game
+        return {
+          names,
+          settings,
+          game: {
+            ...game,
+            settings: { ...game.settings, minChip: game.settings.minChip ?? 1 },
+            events: game.events ?? [],
+          },
         }
-        return saved as SavedData
       },
     },
   ),

@@ -13,6 +13,7 @@ const settings: Settings = {
   smallBlind: 50,
   bigBlind: 100,
   levelMinutes: 20,
+  minChip: 5,
   rebuyLimit: 'none',
   rebuyMaxPerPlayer: 1,
   rebuyMinutes: 120,

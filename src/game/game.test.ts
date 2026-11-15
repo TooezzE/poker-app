@@ -21,7 +21,6 @@ import {
   getStandings,
   getStartProblems,
   getWinner,
-  reopenGame,
   restorePlayer,
   undoRebuy,
   validateSettings,
@@ -37,6 +36,7 @@ const settings: Settings = {
   smallBlind: 50,
   bigBlind: 100,
   levelMinutes: 20,
+  minChip: 5,
   rebuyLimit: 'none',
   rebuyMaxPerPlayer: 1,
   rebuyMinutes: 120,
@@ -71,6 +71,13 @@ describe('подготовка к игре', () => {
     expect(validateSettings({ ...settings, levelMinutes: 0 })).toContain(
       'Укажите длительность уровня',
     )
+  })
+
+  it('блайнды должны собираться самой мелкой фишкой', () => {
+    expect(validateSettings({ ...settings, smallBlind: 5, bigBlind: 10, minChip: 25 })).toContain(
+      'Блайнды должны делиться на самую мелкую фишку (25)',
+    )
+    expect(validateSettings({ ...settings, minChip: 0 })).toContain('Укажите самую мелкую фишку')
   })
 
   it('проверяет настройки лимита ребаев только для выбранного способа', () => {
@@ -117,10 +124,10 @@ describe('банк и ребаи', () => {
     expect(getPlayerPaid(game, player(game, 'p1'))).toBe(2000)
   })
 
-  it('отмена ребая возвращает игрока к выбывшим', () => {
+  it('отмена ребая возвращает игрока к выбывшим (с временем настоящего вылета)', () => {
     let game = bustAndRebuy(fourPlayers(), 'p1', 10)
     game = undoRebuy(game, 'p1', 20)
-    expect(player(game, 'p1')).toMatchObject({ rebuys: 0, bustedAt: 20 })
+    expect(player(game, 'p1')).toMatchObject({ rebuys: 0, bustedAt: 10 })
   })
 
   it('отмена ребая без ребаев ничего не делает', () => {
@@ -129,7 +136,7 @@ describe('банк и ребаи', () => {
   })
 
   it('опоздавший игрок платит бай-ин и получает новый id', () => {
-    const game = addPlayer(fourPlayers(), 'Дима')
+    const game = addPlayer(fourPlayers(), 'Дима', 10)
     expect(calcBank(game)).toBe(5000)
     expect(game.players[4]).toMatchObject({ id: 'p5', name: 'Дима' })
   })
@@ -209,7 +216,7 @@ describe('выбывание и конец игры', () => {
     expect(finishGame(game, 20)).toBe(game)
   })
 
-  it('после завершения есть победитель и ребаи закрыты; к игре можно вернуться', () => {
+  it('после завершения есть победитель и ребаи закрыты', () => {
     let game = fourPlayers()
     game = bustPlayer(game, 'p1', 10)
     game = bustPlayer(game, 'p2', 20)
@@ -217,9 +224,7 @@ describe('выбывание и конец игры', () => {
     game = finishGame(game, 40)
     expect(getWinner(game)?.name).toBe('Гоша')
     expect(canRebuy(game, player(game, 'p3'), 40)).toBe(false)
-
-    game = reopenGame(game)
-    expect(getWinner(game)).toBeNull()
+    expect(finishGame(game, 50)).toBe(game) // повторное завершение ничего не меняет
   })
 
   it('места: кто выбыл позже — тот выше', () => {
@@ -251,5 +256,54 @@ describe('выбывание и конец игры', () => {
     expect(getPlayerNet(game, player(game, 'p4'))).toBe(calcBank(game) - 1000)
     const total = game.players.reduce((sum, p) => sum + getPlayerNet(game, p), 0)
     expect(total).toBe(0)
+  })
+})
+
+describe('история', () => {
+  const MIN_ = 60_000
+  const summary = (game: Game) =>
+    game.events.map((e) => `${e.type} ${e.playerId} ${e.blinds.small}/${e.blinds.big}`)
+
+  it('записывает вылеты, ребаи и входы вместе с блайндами', () => {
+    let game = fourPlayers()
+    game = bustPlayer(game, 'p1', 5 * MIN_) // 1-й уровень: 50/100
+    game = addRebuy(game, 'p1', 6 * MIN_)
+    game = addPlayer(game, 'Дима', 25 * MIN_) // 2-й уровень: 75/150
+    game = bustPlayer(game, 'p2', 45 * MIN_) // 3-й уровень: 100/200
+    expect(summary(game)).toEqual([
+      'bust p1 50/100',
+      'rebuy p1 50/100',
+      'join p5 75/150',
+      'bust p2 100/200',
+    ])
+    expect(game.events[3]).toMatchObject({ at: 45 * MIN_, level: 2 })
+  })
+
+  it('то, что ничего не изменило, в историю не попадает', () => {
+    let game = bustPlayer(fourPlayers(), 'p1', 10)
+    game = bustPlayer(game, 'p1', 20) // уже выбыла
+    game = addRebuy(game, 'p2', 30) // Боря в игре — ребай невозможен
+    expect(summary(game)).toEqual(['bust p1 50/100'])
+  })
+
+  it('отмена вылета убирает вылет из истории', () => {
+    let game = bustAndRebuy(fourPlayers(), 'p1', 10)
+    game = bustPlayer(game, 'p1', 20)
+    game = restorePlayer(game, 'p1')
+    expect(summary(game)).toEqual(['bust p1 50/100', 'rebuy p1 50/100'])
+  })
+
+  it('отмена ребая убирает ребай и возвращает время настоящего вылета', () => {
+    let game = bustPlayer(fourPlayers(), 'p1', 10)
+    game = bustPlayer(game, 'p2', 20)
+    game = addRebuy(game, 'p1', 30)
+    game = undoRebuy(game, 'p1', 40)
+    expect(summary(game)).toEqual(['bust p1 50/100', 'bust p2 50/100'])
+    expect(player(game, 'p1')).toMatchObject({ rebuys: 0, bustedAt: 10 })
+    // Аня выбыла раньше Бори — значит, место у неё ниже.
+    expect(getStandings(game).map((s) => [s.player.name, s.place]).slice(2)).toEqual([
+      ['Боря', 3],
+      ['Аня', 4],
+    ])
   })
 })
