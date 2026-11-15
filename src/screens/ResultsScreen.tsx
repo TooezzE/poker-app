@@ -7,8 +7,8 @@ import { useGameStore } from '../store/useGameStore'
 
 /** Экран 3: игра окончена — победитель, банк и итоги каждого. */
 export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) {
-  const finishGame = useGameStore((s) => s.finishGame)
-  const undoLastBust = useGameStore((s) => s.undoLastBust)
+  const resetGame = useGameStore((s) => s.resetGame)
+  const reopenGame = useGameStore((s) => s.reopenGame)
 
   return (
     <Screen>
@@ -45,11 +45,11 @@ export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) 
       </ol>
 
       <BottomBar>
-        <Button variant="primary" size="lg" className="w-full" onClick={finishGame}>
+        <Button variant="primary" size="lg" className="w-full" onClick={resetGame}>
           Новая игра
         </Button>
-        <Button variant="ghost" size="sm" className="mt-1 w-full" onClick={undoLastBust}>
-          Отменить последний вылет
+        <Button variant="ghost" size="sm" className="mt-1 w-full" onClick={reopenGame}>
+          Вернуться к игре
         </Button>
       </BottomBar>
     </Screen>

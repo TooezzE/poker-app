@@ -6,6 +6,7 @@
 // Поэтому текущее время передаётся параметром `now`, а не берётся внутри через Date.now().
 // Такие функции легко проверять тестами и можно перенести в любое другое приложение.
 
+import { createClock, getClockState, getPlayTime, MINUTE } from './clock'
 import type { Game, Player, Settings, Standing } from './types'
 
 export const MIN_PLAYERS = 2
@@ -39,6 +40,21 @@ export function validateSettings(settings: Settings): string[] {
   else if (settings.bigBlind < settings.smallBlind) {
     errors.push('Большой блайнд не может быть меньше малого')
   }
+  if (!(settings.levelMinutes > 0)) errors.push('Укажите длительность уровня')
+
+  switch (settings.rebuyLimit) {
+    case 'perPlayer':
+      if (!(settings.rebuyMaxPerPlayer > 0)) errors.push('Укажите, сколько ребаев можно игроку')
+      break
+    case 'time':
+      if (!(settings.rebuyMinutes > 0)) errors.push('Укажите, сколько минут открыты ребаи')
+      break
+    case 'bigBlind':
+      if (!(settings.rebuyBigBlindBelow > settings.bigBlind)) {
+        errors.push('Порог для ребаев должен быть больше стартового большого блайнда')
+      }
+      break
+  }
   return errors
 }
 
@@ -49,17 +65,50 @@ export function getStartProblems(names: string[], settings: Settings): string[] 
   return [...problems, ...validateSettings(settings)]
 }
 
-/** Создаёт новую игру. */
+/** Создаёт новую игру. Таймер блайндов запускается сразу. */
 export function createGame(names: string[], settings: Settings, now: number): Game {
   return {
     settings: { ...settings },
     players: names.map((name, index) => newPlayer(`p${index + 1}`, name)),
     startedAt: now,
+    finishedAt: null,
+    clock: createClock(),
   }
 }
 
 function newPlayer(id: string, name: string): Player {
   return { id, name: normalizeName(name), rebuys: 0, bustedAt: null }
+}
+
+// ---------- Ребаи ----------
+
+/**
+ * Открыты ли ребаи в игре сейчас (без учёта лимита на одного игрока).
+ * Время считается игровое — паузы не входят.
+ */
+export function areRebuysOpen(game: Game, now: number): boolean {
+  const { settings } = game
+  switch (settings.rebuyLimit) {
+    case 'time':
+      return getPlayTime(game, now) < settings.rebuyMinutes * MINUTE
+    case 'bigBlind':
+      return getClockState(game, now).blinds.big < settings.rebuyBigBlindBelow
+    default:
+      return true
+  }
+}
+
+/** Сколько мс игрового времени ребаи ещё открыты (только для лимита по времени). */
+export function getRebuyTimeLeft(game: Game, now: number): number {
+  return Math.max(0, game.settings.rebuyMinutes * MINUTE - getPlayTime(game, now))
+}
+
+/** Может ли игрок сейчас сделать ребай. Ребай возможен только после вылета. */
+export function canRebuy(game: Game, player: Player, now: number): boolean {
+  if (game.finishedAt !== null || player.bustedAt === null) return false
+  if (!areRebuysOpen(game, now)) return false
+  const { rebuyLimit, rebuyMaxPerPlayer } = game.settings
+  return !(rebuyLimit === 'perPlayer' && player.rebuys >= rebuyMaxPerPlayer)
 }
 
 // ---------- Действия по ходу игры ----------
@@ -71,24 +120,7 @@ export function addPlayer(game: Game, name: string): Game {
   return { ...game, players: [...game.players, newPlayer(id, name)] }
 }
 
-/** Ребай. Если игрок уже выбыл, ребай возвращает его в игру. */
-export function addRebuy(game: Game, playerId: string): Game {
-  return updatePlayer(game, playerId, (player) => ({
-    ...player,
-    rebuys: player.rebuys + 1,
-    bustedAt: null,
-  }))
-}
-
-/** Отменяет последний ребай игрока (если нажали по ошибке). */
-export function undoRebuy(game: Game, playerId: string): Game {
-  return updatePlayer(game, playerId, (player) => ({
-    ...player,
-    rebuys: Math.max(0, player.rebuys - 1),
-  }))
-}
-
-/** Игрок выбыл. Последнего оставшегося игрока выбить нельзя — он победитель. */
+/** Игрок выбыл (проиграл весь стек). Последнего оставшегося выбить нельзя. */
 export function bustPlayer(game: Game, playerId: string, now: number): Game {
   if (getActivePlayers(game).length <= 1) return game
   return updatePlayer(game, playerId, (player) =>
@@ -96,15 +128,25 @@ export function bustPlayer(game: Game, playerId: string, now: number): Game {
   )
 }
 
-/** Возвращает выбывшего игрока в игру (если отметили по ошибке). */
-export function restorePlayer(game: Game, playerId: string): Game {
-  return updatePlayer(game, playerId, (player) => ({ ...player, bustedAt: null }))
+/** Ребай: выбывший игрок докупается и возвращается в игру. */
+export function addRebuy(game: Game, playerId: string, now: number): Game {
+  const player = game.players.find((p) => p.id === playerId)
+  if (!player || !canRebuy(game, player, now)) return game
+  return updatePlayer(game, playerId, (p) => ({ ...p, rebuys: p.rebuys + 1, bustedAt: null }))
 }
 
-/** Возвращает в игру того, кто выбыл последним. */
-export function undoLastBust(game: Game): Game {
-  const [lastBusted] = getBustedPlayers(game)
-  return lastBusted ? restorePlayer(game, lastBusted.id) : game
+/** Отменяет ребай (нажали по ошибке): игрок снова среди выбывших. */
+export function undoRebuy(game: Game, playerId: string, now: number): Game {
+  return updatePlayer(game, playerId, (player) =>
+    player.rebuys > 0 && player.bustedAt === null
+      ? { ...player, rebuys: player.rebuys - 1, bustedAt: now }
+      : player,
+  )
+}
+
+/** Отменяет вылет (отметили по ошибке): игрок возвращается в игру без ребая. */
+export function restorePlayer(game: Game, playerId: string): Game {
+  return updatePlayer(game, playerId, (player) => ({ ...player, bustedAt: null }))
 }
 
 /** Меняет одного игрока, остальных оставляет как есть. */
@@ -115,9 +157,35 @@ function updatePlayer(game: Game, playerId: string, change: (player: Player) => 
   }
 }
 
+// ---------- Завершение игры ----------
+
+/** Единственный оставшийся игрок (пока за столом двое и больше — null). */
+export function getLastPlayerStanding(game: Game): Player | null {
+  const active = getActivePlayers(game)
+  return game.players.length >= MIN_PLAYERS && active.length === 1 ? active[0] : null
+}
+
+/**
+ * Завершить игру. Возможно, только когда остался один игрок.
+ * Игра не завершается сама: выбывшие должны успеть решить, делать ли ребай.
+ */
+export function finishGame(game: Game, now: number): Game {
+  return getLastPlayerStanding(game) ? { ...game, finishedAt: now } : game
+}
+
+/** Вернуться к завершённой игре (если завершили по ошибке). */
+export function reopenGame(game: Game): Game {
+  return { ...game, finishedAt: null }
+}
+
+/** Победитель — оставшийся игрок, но только после того, как игру завершили. */
+export function getWinner(game: Game): Player | null {
+  return game.finishedAt === null ? null : getLastPlayerStanding(game)
+}
+
 // ---------- Подсчёты ----------
 
-/** Игроки, которые ещё в игре (в порядке добавления). */
+/** Игроки, которые сейчас в игре (в порядке добавления). */
 export function getActivePlayers(game: Game): Player[] {
   return game.players.filter((player) => player.bustedAt === null)
 }
@@ -162,15 +230,9 @@ export function getAverageStack(game: Game): number {
   return activeCount === 0 ? 0 : Math.round(getChipsInPlay(game) / activeCount)
 }
 
-/** Победитель — единственный оставшийся игрок. Пока играют двое и больше, победителя нет. */
-export function getWinner(game: Game): Player | null {
-  const active = getActivePlayers(game)
-  return game.players.length >= MIN_PLAYERS && active.length === 1 ? active[0] : null
-}
-
 /**
- * Таблица мест: сначала те, кто ещё играет, затем выбывшие (последний выбывший — выше).
- * Место выбывшего известно сразу: если осталось 3 игрока, следующий выбывший — третий.
+ * Таблица мест: сначала те, кто в игре, затем выбывшие (последний выбывший — выше).
+ * Место выбывшего: если осталось 3 игрока, следующий выбывший — третий.
  */
 export function getStandings(game: Game): Standing[] {
   const active = getActivePlayers(game)

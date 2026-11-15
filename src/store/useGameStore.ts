@@ -1,12 +1,13 @@
 // Хранилище (стор) — единое место, где живут данные приложения.
 //
-// Экраны читают отсюда данные и вызывают действия («ребай», «выбыл»).
+// Экраны читают отсюда данные и вызывают действия («ребай», «выбыл», «пауза»).
 // Сами действия ничего не считают — они вызывают чистые функции из src/game/.
 // Middleware `persist` автоматически сохраняет состояние в localStorage телефона,
 // поэтому игра не пропадёт, если закрыть приложение.
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import * as clock from '../game/clock'
 import * as rules from '../game/game'
 import type { Game, Settings } from '../game/types'
 
@@ -20,18 +21,30 @@ type GameStore = {
 
   addName: (name: string) => void
   removeName: (name: string) => void
-  setSetting: (key: keyof Settings, value: number) => void
+  setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
   startGame: () => void
 
+  bustPlayer: (playerId: string) => void
   addRebuy: (playerId: string) => void
   undoRebuy: (playerId: string) => void
-  bustPlayer: (playerId: string) => void
   restorePlayer: (playerId: string) => void
   addLatePlayer: (name: string) => void
-  undoLastBust: () => void
-  /** Закрыть игру и вернуться к настройке новой. */
+
+  pauseClock: () => void
+  resumeClock: () => void
+  nextLevel: () => void
+  previousLevel: () => void
+
+  /** Объявить победителя (когда остался один игрок). */
   finishGame: () => void
+  /** Вернуться к игре после завершения. */
+  reopenGame: () => void
+  /** Закрыть игру и вернуться к настройке новой. */
+  resetGame: () => void
 }
+
+/** То, что сохраняется в телефоне (действия не сохраняются — это код). */
+type SavedData = Pick<GameStore, 'names' | 'settings' | 'game'>
 
 const defaultSettings: Settings = {
   buyIn: 1000,
@@ -39,15 +52,20 @@ const defaultSettings: Settings = {
   startingStack: 10000,
   smallBlind: 50,
   bigBlind: 100,
+  levelMinutes: 20,
+  rebuyLimit: 'none',
+  rebuyMaxPerPlayer: 2,
+  rebuyMinutes: 120,
+  rebuyBigBlindBelow: 1000,
 }
 
 export const useGameStore = create<GameStore>()(
   persist(
     (set, get) => {
       /** Применяет функцию из src/game к текущей игре (если игра идёт). */
-      const updateGame = (change: (game: Game) => Game) => {
+      const updateGame = (change: (game: Game, now: number) => Game) => {
         const { game } = get()
-        if (game) set({ game: change(game) })
+        if (game) set({ game: change(game, Date.now()) })
       }
 
       return {
@@ -73,11 +91,10 @@ export const useGameStore = create<GameStore>()(
           }
         },
 
-        addRebuy: (playerId) => updateGame((game) => rules.addRebuy(game, playerId)),
-        undoRebuy: (playerId) => updateGame((game) => rules.undoRebuy(game, playerId)),
-        bustPlayer: (playerId) => updateGame((game) => rules.bustPlayer(game, playerId, Date.now())),
-        restorePlayer: (playerId) => updateGame((game) => rules.restorePlayer(game, playerId)),
-        undoLastBust: () => updateGame(rules.undoLastBust),
+        bustPlayer: (id) => updateGame((game, now) => rules.bustPlayer(game, id, now)),
+        addRebuy: (id) => updateGame((game, now) => rules.addRebuy(game, id, now)),
+        undoRebuy: (id) => updateGame((game, now) => rules.undoRebuy(game, id, now)),
+        restorePlayer: (id) => updateGame((game) => rules.restorePlayer(game, id)),
 
         addLatePlayer: (name) => {
           const { game, names } = get()
@@ -93,12 +110,39 @@ export const useGameStore = create<GameStore>()(
           })
         },
 
-        finishGame: () => set({ game: null }),
+        pauseClock: () => updateGame(clock.pauseClock),
+        resumeClock: () => updateGame(clock.resumeClock),
+        nextLevel: () => updateGame((game, now) => clock.changeLevel(game, 1, now)),
+        previousLevel: () => updateGame((game, now) => clock.changeLevel(game, -1, now)),
+
+        finishGame: () => updateGame(rules.finishGame),
+        reopenGame: () => updateGame(rules.reopenGame),
+        resetGame: () => set({ game: null }),
       }
     },
     {
       name: 'poker-tracker', // ключ в localStorage
-      version: 1, // увеличим, если поменяется формат данных
+      version: 2, // увеличиваем, когда меняется формат сохранённых данных
+      partialize: (state): SavedData => ({
+        names: state.names,
+        settings: state.settings,
+        game: state.game,
+      }),
+      // Перенос данных, сохранённых старой версией приложения.
+      migrate: (persisted, version) => {
+        const saved = persisted as Partial<SavedData>
+        if (version < 2) {
+          // В версии 2 появились таймер блайндов и лимиты ребаев.
+          // Игроков и ставки сохраняем (дополняя новыми настройками),
+          // а незаконченную старую игру не переносим — в ней нет таймера.
+          return {
+            names: saved.names ?? [],
+            settings: { ...defaultSettings, ...saved.settings },
+            game: null,
+          }
+        }
+        return saved as SavedData
+      },
     },
   ),
 )

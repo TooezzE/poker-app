@@ -1,61 +1,103 @@
 import { useState, type FormEvent } from 'react'
+import { BlindClock } from '../components/BlindClock'
 import { Button } from '../components/Button'
-import { PlayerCard } from '../components/PlayerCard'
+import { ActivePlayerCard, BustedPlayerCard } from '../components/PlayerCard'
 import { Screen } from '../components/Screen'
-import { formatNumber } from '../format'
+import { formatCountdown, formatNumber } from '../format'
+import { getClockState } from '../game/clock'
 import {
+  areRebuysOpen,
   calcBank,
+  canRebuy,
   checkNewName,
-  getActivePlayers,
   getAverageStack,
+  getLastPlayerStanding,
+  getRebuyTimeLeft,
   getStandings,
   getTotalRebuys,
 } from '../game/game'
-import type { Game } from '../game/types'
+import type { Game, Player } from '../game/types'
+import { useNow } from '../hooks/useNow'
 import { useGameStore } from '../store/useGameStore'
 
-/** Экран 2: идёт игра — банк, игроки, ребаи и вылеты. */
+/** Экран 2: идёт игра — таймер блайндов, банк, игроки, вылеты и ребаи. */
 export function GameScreen({ game }: { game: Game }) {
-  const finishGame = useGameStore((s) => s.finishGame)
+  const resetGame = useGameStore((s) => s.resetGame)
+  const now = useNow()
 
-  const { smallBlind, bigBlind } = game.settings
-  const averageStack = getAverageStack(game)
+  const clock = getClockState(game, now)
+  const standings = getStandings(game)
+  const active = standings.filter((s) => s.player.bustedAt === null)
+  const busted = standings.filter((s) => s.player.bustedAt !== null)
+  const lastPlayer = getLastPlayerStanding(game)
 
-  function handleFinish() {
+  function handleReset() {
     if (window.confirm('Завершить игру без победителя? Данные этой игры удалятся.')) {
-      finishGame()
+      resetGame()
     }
   }
 
   return (
     <Screen>
-      <header className="py-4">
-        <p className="text-sm text-emerald-300">Банк</p>
-        <p className="text-5xl font-bold tabular-nums text-amber-300">
-          {formatNumber(calcBank(game))}
-        </p>
+      <div className="pt-2">
+        <BlindClock clock={clock} />
+      </div>
 
-        <dl className="mt-4 grid grid-cols-3 gap-2">
-          <Stat label="В игре" value={`${getActivePlayers(game).length} из ${game.players.length}`} />
+      <section className="mt-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-emerald-300">Банк</span>
+          <span className="text-4xl font-bold tabular-nums text-amber-300">
+            {formatNumber(calcBank(game))}
+          </span>
+        </div>
+        <dl className="mt-3 grid grid-cols-3 gap-2">
+          <Stat label="В игре" value={`${active.length} из ${game.players.length}`} />
           <Stat label="Ребаев" value={String(getTotalRebuys(game))} />
-          <Stat label="Блайнды" value={`${formatNumber(smallBlind)}/${formatNumber(bigBlind)}`} />
+          <Stat
+            label="Средний стек"
+            value={`${formatNumber(Math.round(getAverageStack(game) / clock.blinds.big))} BB`}
+          />
         </dl>
-        <p className="mt-2 text-sm text-emerald-200">
-          Средний стек: {formatNumber(averageStack)} фишек (
-          {formatNumber(Math.round(averageStack / bigBlind))} BB)
-        </p>
-      </header>
+        <p className="mt-2 text-sm text-emerald-200">{rebuyStatus(game, now)}</p>
+      </section>
 
-      <ul className="flex flex-col gap-3">
-        {getStandings(game).map((standing) => (
-          <PlayerCard key={standing.player.id} game={game} standing={standing} />
+      {lastPlayer && <FinishPrompt player={lastPlayer} />}
+
+      <h2 className="mt-6 mb-2 text-lg font-semibold">
+        В игре <span className="text-emerald-300">· {active.length}</span>
+      </h2>
+      <ul className="flex flex-col gap-2">
+        {active.map((standing) => (
+          <ActivePlayerCard
+            key={standing.player.id}
+            game={game}
+            standing={standing}
+            canBust={active.length > 1}
+          />
         ))}
       </ul>
-
       <AddLatePlayer game={game} />
 
+      {busted.length > 0 && (
+        <>
+          <h2 className="mt-6 mb-2 text-lg font-semibold">
+            Выбывшие <span className="text-emerald-300">· {busted.length}</span>
+          </h2>
+          <ul className="flex flex-col gap-2">
+            {busted.map((standing) => (
+              <BustedPlayerCard
+                key={standing.player.id}
+                game={game}
+                standing={standing}
+                rebuyAllowed={canRebuy(game, standing.player, now)}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
       <div className="pb-safe mt-auto pt-8">
-        <Button variant="ghost" size="sm" className="w-full" onClick={handleFinish}>
+        <Button variant="ghost" size="sm" className="w-full" onClick={handleReset}>
           Завершить игру без победителя
         </Button>
       </div>
@@ -63,12 +105,49 @@ export function GameScreen({ game }: { game: Game }) {
   )
 }
 
+/** Строка о том, открыты ли ребаи. */
+function rebuyStatus(game: Game, now: number): string {
+  const { settings } = game
+  const open = areRebuysOpen(game, now)
+  switch (settings.rebuyLimit) {
+    case 'perPlayer':
+      return `Ребаи: не больше ${settings.rebuyMaxPerPlayer} на игрока`
+    case 'time':
+      return open
+        ? `Ребаи открыты ещё ${formatCountdown(getRebuyTimeLeft(game, now))}`
+        : 'Время ребаев вышло'
+    case 'bigBlind':
+      return open
+        ? `Ребаи — пока большой блайнд меньше ${formatNumber(settings.rebuyBigBlindBelow)}`
+        : 'Ребаи закрыты: блайнды выросли'
+    default:
+      return 'Ребаи без ограничений'
+  }
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-white/5 px-3 py-2">
-      <dt className="text-xs text-emerald-300">{label}</dt>
+      <dt className="truncate text-xs text-emerald-300">{label}</dt>
       <dd className="truncate text-lg font-semibold tabular-nums">{value}</dd>
     </div>
+  )
+}
+
+/** Остался один игрок: предлагаем завершить игру. */
+function FinishPrompt({ player }: { player: Player }) {
+  const finishGame = useGameStore((s) => s.finishGame)
+  return (
+    <section className="mt-6 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4">
+      <p className="text-sm text-amber-200">Остался один игрок</p>
+      <p className="text-2xl font-bold">{player.name}</p>
+      <p className="mt-1 text-sm text-emerald-100/80">
+        Если никто из выбывших не делает ребай — завершайте игру.
+      </p>
+      <Button variant="primary" size="lg" className="mt-3 w-full" onClick={finishGame}>
+        Завершить игру
+      </Button>
+    </section>
   )
 }
 
@@ -92,14 +171,14 @@ function AddLatePlayer({ game }: { game: Game }) {
 
   if (!isOpen) {
     return (
-      <Button className="mt-3 w-full" onClick={() => setIsOpen(true)}>
+      <Button className="mt-2 w-full" onClick={() => setIsOpen(true)}>
         + Добавить игрока
       </Button>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 rounded-2xl bg-white/5 p-3">
+    <form onSubmit={handleSubmit} className="mt-2 rounded-2xl bg-white/5 p-3">
       <p className="mb-2 text-sm text-emerald-200">
         Опоздавший игрок платит бай-ин {formatNumber(game.settings.buyIn)}
       </p>

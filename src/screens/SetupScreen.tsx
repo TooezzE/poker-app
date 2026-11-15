@@ -1,10 +1,24 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Button } from '../components/Button'
 import { NumberField } from '../components/NumberField'
 import { BottomBar, Screen } from '../components/Screen'
+import { formatBlinds, formatClockTime, formatMinutes, plural } from '../format'
+import { countLevelsWithBigBlindBelow, getBlindLevels } from '../game/blinds'
 import { checkNewName, getStartProblems } from '../game/game'
-import type { Settings } from '../game/types'
+import type { RebuyLimitKind, Settings } from '../game/types'
 import { useGameStore } from '../store/useGameStore'
+
+/** Ключи настроек, значения которых — числа (для полей ввода). */
+type NumberSettingKey = {
+  [K in keyof Settings]: Settings[K] extends number ? K : never
+}[keyof Settings]
+
+const REBUY_LIMIT_OPTIONS: { kind: RebuyLimitKind; label: string }[] = [
+  { kind: 'none', label: 'Без ограничений' },
+  { kind: 'perPlayer', label: 'По количеству' },
+  { kind: 'time', label: 'По времени' },
+  { kind: 'bigBlind', label: 'По блайндам' },
+]
 
 /** Экран 1: список игроков и настройки перед началом игры. */
 export function SetupScreen() {
@@ -28,7 +42,7 @@ export function SetupScreen() {
   }
 
   /** Поле настройки, связанное с нужным ключом в сторе. */
-  const field = (key: keyof Settings, label: string, className?: string) => (
+  const field = (key: NumberSettingKey, label: string, className?: string) => (
     <NumberField
       label={label}
       value={settings[key]}
@@ -88,16 +102,45 @@ export function SetupScreen() {
         )}
       </section>
 
-      <section className="mt-8 mb-6">
-        <h2 className="mb-2 text-lg font-semibold">Ставки</h2>
+      <Section title="Ставки">
         <div className="grid grid-cols-2 gap-3">
           {field('buyIn', 'Бай-ин')}
           {field('rebuyCost', 'Ребай')}
           {field('startingStack', 'Стартовый стек (фишки)', 'col-span-2')}
+        </div>
+      </Section>
+
+      <Section title="Блайнды">
+        <div className="grid grid-cols-2 gap-3">
           {field('smallBlind', 'Малый блайнд')}
           {field('bigBlind', 'Большой блайнд')}
+          {field('levelMinutes', 'Длительность уровня, минут', 'col-span-2')}
         </div>
-      </section>
+        <Hint>Каждый уровень блайнды растут примерно в 1,5 раза и округляются до круглых чисел.</Hint>
+        <LevelsPreview settings={settings} />
+      </Section>
+
+      <Section title="Ребаи">
+        <div className="grid grid-cols-2 gap-2">
+          {REBUY_LIMIT_OPTIONS.map(({ kind, label }) => {
+            const selected = settings.rebuyLimit === kind
+            return (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSetting('rebuyLimit', kind)}
+                className={`h-12 rounded-xl px-2 font-semibold transition-colors ${
+                  selected ? 'bg-amber-400 text-emerald-950' : 'bg-white/10 text-white active:bg-white/20'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <RebuyLimitDetails settings={settings} field={field} />
+      </Section>
 
       <BottomBar>
         {problems.length > 0 && (
@@ -115,4 +158,97 @@ export function SetupScreen() {
       </BottomBar>
     </Screen>
   )
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-8">
+      <h2 className="mb-2 text-lg font-semibold">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function Hint({ children }: { children: ReactNode }) {
+  return <p className="mt-2 text-sm text-white/50">{children}</p>
+}
+
+/** Можно ли уже построить шкалу блайндов по введённым числам. */
+function blindsAreValid(settings: Settings): boolean {
+  return (
+    settings.smallBlind > 0 &&
+    settings.bigBlind >= settings.smallBlind &&
+    settings.levelMinutes > 0
+  )
+}
+
+/** Раскрывающийся список первых уровней блайндов со временем начала. */
+function LevelsPreview({ settings }: { settings: Settings }) {
+  if (!blindsAreValid(settings)) return null
+  const levels = getBlindLevels(settings, 12)
+
+  return (
+    <details className="mt-3 rounded-xl bg-white/5">
+      <summary className="cursor-pointer select-none px-4 py-3 text-emerald-200">
+        Посмотреть уровни
+      </summary>
+      <ol className="grid grid-flow-col grid-rows-6 gap-x-6 gap-y-1 px-4 pb-3 text-sm tabular-nums">
+        {levels.map((level, index) => (
+          <li key={index} className="flex justify-between gap-2">
+            <span className="text-white/50">{formatClockTime(index * settings.levelMinutes)}</span>
+            <span>{formatBlinds(level)}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
+}
+
+type RebuyLimitDetailsProps = {
+  settings: Settings
+  field: (key: NumberSettingKey, label: string, className?: string) => ReactNode
+}
+
+/** Поле и подсказка для выбранного способа ограничения ребаев. */
+function RebuyLimitDetails({ settings, field }: RebuyLimitDetailsProps) {
+  switch (settings.rebuyLimit) {
+    case 'perPlayer':
+      return (
+        <div className="mt-3">
+          {field('rebuyMaxPerPlayer', 'Сколько ребаев можно одному игроку')}
+        </div>
+      )
+
+    case 'time':
+      return (
+        <div className="mt-3">
+          {field('rebuyMinutes', 'Ребаи открыты первые … минут')}
+          {settings.rebuyMinutes > 0 && (
+            <Hint>
+              Это {formatMinutes(settings.rebuyMinutes)} игрового времени — паузы не считаются.
+            </Hint>
+          )}
+        </div>
+      )
+
+    case 'bigBlind': {
+      const threshold = settings.rebuyBigBlindBelow
+      const showHint = blindsAreValid(settings) && threshold > settings.bigBlind
+      const levels = showHint ? countLevelsWithBigBlindBelow(settings, threshold) : 0
+      return (
+        <div className="mt-3">
+          {field('rebuyBigBlindBelow', 'Ребай можно, пока большой блайнд меньше')}
+          {showHint && (
+            <Hint>
+              По этой шкале это {levels} {plural(levels, ['уровень', 'уровня', 'уровней'])} —
+              первые {formatClockTime(levels * settings.levelMinutes)} игры без пауз.
+            </Hint>
+          )}
+        </div>
+      )
+    }
+
+    default:
+      return <Hint>Выбывший игрок может докупиться в любой момент игры.</Hint>
+  }
 }
