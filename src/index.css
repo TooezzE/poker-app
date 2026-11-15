@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+/* Отступы под «чёлку» сверху и полоску «домой» снизу на iPhone. */
+@utility pt-safe {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+@utility pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    background-color: var(--color-emerald-950);
+  }
+
+  body {
+    @apply bg-emerald-950 text-emerald-50 antialiased;
+    /* Не «пружинить» страницей при прокрутке за край. */
+    overscroll-behavior-y: none;
+  }
+
+  button {
+    cursor: pointer;
+    /* Убирает задержку и серую подсветку при нажатии на iPhone. */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}

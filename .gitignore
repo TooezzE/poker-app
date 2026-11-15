@@ -1,0 +1,39 @@
+# Зависимости (их всегда можно заново скачать командой `npm install`)
+node_modules/
+
+# Результат сборки (Vite кладёт готовый сайт сюда)
+dist/
+dist-ssr/
+dev-dist/
+
+# Логи
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Локальные настройки и секреты
+.env
+.env.*
+!.env.example
+*.local
+
+# Отчёты тестов
+coverage/
+
+# Кэши инструментов
+.vite/
+.eslintcache
+*.tsbuildinfo
+
+# Системные файлы macOS
+.DS_Store
+
+# Настройки редакторов (общие настройки VS Code оставляем)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp

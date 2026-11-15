@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Фон: зелёное сукно. Квадрат без скруглений — iOS сам скруглит углы. -->
+  <rect width="512" height="512" fill="#065f46"/>
+  <g transform="translate(256 256)">
+    <!-- Фишка -->
+    <circle r="160" fill="#dc2626"/>
+    <g fill="#fff">
+      <rect x="-18" y="-160" width="36" height="48" rx="6"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(45)"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(90)"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(135)"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(180)"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(225)"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(270)"/>
+      <rect x="-18" y="-160" width="36" height="48" rx="6" transform="rotate(315)"/>
+    </g>
+    <circle r="100" fill="#fff"/>
+    <!-- Пика -->
+    <path fill="#022c22" d="M0 -68 C-24 -38 -60 -16 -60 16 C-60 40 -40 54 -20 54 C-11 54 -4 50 0 45 L-9 74 L9 74 L0 45 C4 50 11 54 20 54 C40 54 60 40 60 16 C60 -16 24 -38 0 -68 Z"/>
+  </g>
+</svg>
