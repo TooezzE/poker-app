@@ -24,11 +24,15 @@ const EVENT_LABELS: Record<GameEvent['type'], { text: string; className: string 
 
 type Props = {
   game: Game
+  /** Куда ведёт кнопка «назад» — подпись, например «Итоги» или «История». */
+  backLabel: string
   onBack: () => void
+  /** Если передано — внизу появляется кнопка «Удалить из истории». */
+  onDelete?: () => void
 }
 
 /** Экран «Обзор игры»: статистика, итоги игроков и история вылетов и ребаев. */
-export function OverviewScreen({ game, onBack }: Props) {
+export function OverviewScreen({ game, backLabel, onBack, onDelete }: Props) {
   const end = game.finishedAt ?? game.startedAt
   const stats = getGameStats(game, end)
   const winner = getWinner(game)
@@ -43,7 +47,7 @@ export function OverviewScreen({ game, onBack }: Props) {
           onClick={onBack}
           className="-ml-2 flex h-11 items-center gap-1 px-2 text-emerald-300"
         >
-          <PreviousIcon className="h-5 w-5" /> Итоги
+          <PreviousIcon className="h-5 w-5" /> {backLabel}
         </button>
         <h1 className="text-3xl font-bold">Обзор игры</h1>
         <p className="text-sm text-emerald-300">
@@ -124,8 +128,13 @@ export function OverviewScreen({ game, onBack }: Props) {
 
       <div className="pb-safe mt-auto pt-8">
         <Button className="w-full" onClick={onBack}>
-          К итогам
+          Назад
         </Button>
+        {onDelete && (
+          <Button variant="danger" size="sm" className="mt-3 w-full" onClick={onDelete}>
+            Удалить из истории
+          </Button>
+        )}
       </div>
     </Screen>
   )

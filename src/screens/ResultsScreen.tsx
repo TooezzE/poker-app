@@ -19,13 +19,9 @@ export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) 
     window.scrollTo(0, 0)
   }
 
-  function handleNewGame() {
-    if (window.confirm('Начать новую игру? Итоги и история этой игры удалятся.')) {
-      resetGame()
-    }
+  if (showOverview) {
+    return <OverviewScreen game={game} backLabel="Итоги" onBack={() => toggleOverview(false)} />
   }
-
-  if (showOverview) return <OverviewScreen game={game} onBack={() => toggleOverview(false)} />
 
   return (
     <Screen>
@@ -66,7 +62,10 @@ export function ResultsScreen({ game, winner }: { game: Game; winner: Player }) 
       </Button>
 
       <BottomBar>
-        <Button variant="primary" size="lg" className="w-full" onClick={handleNewGame}>
+        <p className="mb-2 text-center text-sm text-emerald-200">
+          Игра сохранена в истории — её можно открыть с главного экрана.
+        </p>
+        <Button variant="primary" size="lg" className="w-full" onClick={resetGame}>
           Новая игра
         </Button>
       </BottomBar>

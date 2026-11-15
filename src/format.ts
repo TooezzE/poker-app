@@ -55,9 +55,15 @@ export function formatTimeOfDay(ms: number): string {
   return new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Дата: «15 ноября». */
+/** Дата: «15 ноября»; если год не текущий — «15 ноября 2025 г.». */
 export function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  const date = new Date(ms)
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: sameYear ? undefined : 'numeric',
+  })
 }
 
 /**

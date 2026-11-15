@@ -7,6 +7,7 @@ import { countLevelsWithBigBlindBelow, getBlindLevels } from '../game/blinds'
 import { checkNewName, getStartProblems } from '../game/game'
 import type { RebuyLimitKind, Settings } from '../game/types'
 import { useGameStore } from '../store/useGameStore'
+import { HistoryScreen } from './HistoryScreen'
 
 /** Ключи настроек, значения которых — числа (для полей ввода). */
 type NumberSettingKey = {
@@ -28,10 +29,20 @@ export function SetupScreen() {
   const removeName = useGameStore((s) => s.removeName)
   const setSetting = useGameStore((s) => s.setSetting)
   const startGame = useGameStore((s) => s.startGame)
+  const historyCount = useGameStore((s) => s.history.length)
 
   const [draft, setDraft] = useState('')
+  // Показывать ли историю игр вместо настройки — состояние только интерфейса.
+  const [showHistory, setShowHistory] = useState(false)
   const nameError = draft.trim() === '' ? null : checkNewName(names, draft)
   const problems = getStartProblems(names, settings)
+
+  function toggleHistory(show: boolean) {
+    setShowHistory(show)
+    window.scrollTo(0, 0)
+  }
+
+  if (showHistory) return <HistoryScreen onBack={() => toggleHistory(false)} />
 
   function handleAdd(event: FormEvent) {
     event.preventDefault() // не перезагружать страницу при отправке формы
@@ -53,9 +64,16 @@ export function SetupScreen() {
 
   return (
     <Screen>
-      <header className="py-4">
-        <p className="text-sm text-emerald-300">Покер-трекер</p>
-        <h1 className="text-3xl font-bold">Новая игра</h1>
+      <header className="flex items-end justify-between gap-3 py-4">
+        <div>
+          <p className="text-sm text-emerald-300">Покер-трекер</p>
+          <h1 className="text-3xl font-bold">Новая игра</h1>
+        </div>
+        {historyCount > 0 && (
+          <Button size="sm" onClick={() => toggleHistory(true)}>
+            История · {historyCount}
+          </Button>
+        )}
       </header>
 
       <section>
