@@ -6,6 +6,9 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // Адрес, по которому живёт приложение. На GitHub Pages это https://tooezze.github.io/poker-app/,
+  // поэтому все пути начинаются с /poker-app/ — и на компьютере тоже: http://localhost:5173/poker-app/
+  base: '/poker-app/',
   plugins: [
     react(),
     tailwindcss(),

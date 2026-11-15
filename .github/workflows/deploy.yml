@@ -1,0 +1,47 @@
+# Автоматическая публикация на GitHub Pages.
+# После каждого `git push` в ветку main GitHub сам: скачивает код, ставит библиотеки,
+# прогоняет тесты, собирает приложение и выкладывает его на https://tooezze.github.io/poker-app/
+# Если тесты или сборка упадут — старая версия сайта останется на месте.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # кнопка «Run workflow» на вкладке Actions — запустить вручную
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Если запушили несколько раз подряд — публикуется только последняя версия.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
